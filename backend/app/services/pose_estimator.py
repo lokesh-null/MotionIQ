@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import math
+import os
+import shutil
+import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import cv2
@@ -11,6 +15,7 @@ from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
 from app.core.config import (
+    BACKEND_DIR,
     MAX_ANALYSIS_FPS,
     MIN_POSE_DETECTION_CONFIDENCE,
     MIN_POSE_PRESENCE_CONFIDENCE,
@@ -20,6 +25,60 @@ from app.core.config import (
     TARGET_SAMPLED_FPS,
 )
 from app.utils.geometry import to_pixel_coords
+
+_LINUX_GL_PRELOADED = False
+
+
+def _ensure_linux_gl_libraries() -> None:
+    """
+    Ensure libGLdispatch.so.0, libEGL.so.1, and libGLESv2.so.2 are loaded on headless Linux hosts
+    (such as Render's native Python 3 runtime) where system OpenGL ES packages are not installed.
+    """
+    global _LINUX_GL_PRELOADED
+    if _LINUX_GL_PRELOADED or not sys.platform.startswith("linux"):
+        return
+
+    linux_libs_dir = BACKEND_DIR / "linux_libs"
+    lib_order = ("libGLdispatch.so.0", "libEGL.so.1", "libGLESv2.so.2")
+
+    # 1. Copy into libmediapipe.so's compiled-in $ORIGIN DT_RPATH directories if writable
+    try:
+        mp_c_dir = Path(mp.__file__).resolve().parent / "tasks" / "c"
+        rpath_dirs = [
+            mp_c_dir
+            / "libmediapipe_source.so.runfiles"
+            / "google3"
+            / "_solib_k8"
+            / "_U_S_Sthird_Uparty_SGL_Snative_CEGL___Uthird_Uparty_SGL_Snative",
+            mp_c_dir
+            / "libmediapipe_source.so.runfiles"
+            / "google3"
+            / "_solib_k8"
+            / "_U_S_Sthird_Uparty_SGL_Snative_CGLESv3___Uthird_Uparty_SGL_Snative",
+        ]
+        for rdir in rpath_dirs:
+            rdir.mkdir(parents=True, exist_ok=True)
+            for lib_name in lib_order:
+                src = linux_libs_dir / lib_name
+                dst = rdir / lib_name
+                if src.exists() and not dst.exists():
+                    shutil.copy2(src, dst)
+    except Exception:
+        pass
+
+    # 2. Preload into global dynamic linker namespace (RTLD_GLOBAL) by SONAME
+    for lib_name in lib_order:
+        try:
+            ctypes.CDLL(lib_name, mode=ctypes.RTLD_GLOBAL)
+        except OSError:
+            bundled = linux_libs_dir / lib_name
+            if bundled.exists():
+                ctypes.CDLL(str(bundled), mode=ctypes.RTLD_GLOBAL)
+
+    _LINUX_GL_PRELOADED = True
+
+
+_ensure_linux_gl_libraries()
 
 LANDMARK_NAMES: Tuple[str, ...] = (
     "nose",
@@ -147,7 +206,12 @@ def _select_primary_pose(
 
 
 def resolve_model_path() -> Path:
-    """Resolve the MediaPipe Pose Landmarker .task file."""
+    """Resolve the MediaPipe Pose Landmarker .task file (prefers lite on memory-constrained cloud hosts like Render)."""
+    prefer_lite = os.getenv("MOTIONIQ_POSE_MODEL", "").lower() == "lite" or (
+        bool(os.getenv("RENDER")) and os.getenv("MOTIONIQ_POSE_MODEL", "").lower() != "full"
+    )
+    if prefer_lite and POSE_MODEL_LITE.exists():
+        return POSE_MODEL_LITE
     if POSE_MODEL_FULL.exists():
         return POSE_MODEL_FULL
     if POSE_MODEL_LITE.exists():
@@ -180,6 +244,7 @@ def extract_pose_landmarks(
     Decode video frames via OpenCV, sample frames when FPS > MAX_ANALYSIS_FPS,
     maintain actual frame timestamps, and run MediaPipe 33-landmark Pose Landmarker.
     """
+    _ensure_linux_gl_libraries()
     model_path = resolve_model_path()
     model_bytes = model_path.read_bytes()
 

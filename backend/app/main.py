@@ -10,10 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.analysis import router as analysis_router
 from app.api.reports import router as reports_router
 from app.core.database import init_db
+from app.services.pose_estimator import _ensure_linux_gl_libraries
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    _ensure_linux_gl_libraries()
     init_db()
     yield
 
