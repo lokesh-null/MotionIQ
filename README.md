@@ -114,3 +114,21 @@ python backend/tests/run_validation_suite.py
 ```
 
 See [VALIDATION_REPORT.md](file:///c:/My%20Projects/BioMech/VALIDATION_REPORT.md) for measured experimental results, reference agreement errors, and known limitations.
+
+---
+
+## Cloud Deployment (Vercel + Render)
+
+### 1. Deploy Backend on Render
+1. Connect `https://github.com/lokesh-null/MotionIQ` in Render as a **Web Service** (or use **Blueprint** with `render.yaml`).
+2. Render uses [Dockerfile](file:///c:/My%20Projects/BioMech/Dockerfile) (Docker context `.` at repo root) and checks `/api/health`.
+3. Note on instance sizing: Render's Free tier (`512 MB` RAM) may run out of memory during MediaPipe + OpenCV + FFmpeg H.264 video encoding; **Starter (`512 MB`–`2 GB`) or Standard (`>= 2 GB` RAM)** is recommended for smooth video processing.
+4. Set environment variable `CORS_ORIGINS` to your Vercel production URL (e.g. `https://motion-iq.vercel.app`). Preview `*.vercel.app` domains are also permitted automatically.
+
+### 2. Deploy Frontend on Vercel
+1. Import `lokesh-null/MotionIQ` in Vercel and set **Root Directory** to `frontend`.
+2. Framework Preset: **Vite** (`npm run build`, output `dist`). SPA routing is handled by [vercel.json](file:///c:/My%20Projects/BioMech/frontend/vercel.json).
+3. Add Environment Variable:
+   - `VITE_API_BASE_URL` = `https://<your-render-service>.onrender.com` (no trailing slash).
+4. Redeploy if `VITE_API_BASE_URL` is added after the first build.
+

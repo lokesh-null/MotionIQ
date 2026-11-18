@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: motioniq-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: CORS_ORIGINS
+        value: https://motion-iq.vercel.app
