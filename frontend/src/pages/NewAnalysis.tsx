@@ -4,6 +4,9 @@ import { AlertCircle, CheckCircle2, Play, SlidersHorizontal } from 'lucide-react
 import { Header } from '../components/Header';
 import { UploadZone } from '../components/UploadZone';
 import {
+  DEFAULT_GUIDELINES,
+  DEFAULT_MOVEMENTS,
+  DEFAULT_SAMPLES,
   fetchMovementsAndGuidelines,
   fetchSamples,
   startAnalysisProcess,
@@ -24,9 +27,9 @@ export const NewAnalysis: React.FC = () => {
   const [searchParams] = useSearchParams();
   const initialMv = (searchParams.get('movement') as MovementType) || 'squat';
 
-  const [movements, setMovements] = useState<MovementInfo[]>([]);
-  const [guidelines, setGuidelines] = useState<Record<CameraPerspective, RecordingGuidelines> | null>(null);
-  const [samples, setSamples] = useState<SampleVideoItem[]>([]);
+  const [movements, setMovements] = useState<MovementInfo[]>(DEFAULT_MOVEMENTS);
+  const [guidelines, setGuidelines] = useState<Record<CameraPerspective, RecordingGuidelines>>(DEFAULT_GUIDELINES);
+  const [samples, setSamples] = useState<SampleVideoItem[]>(DEFAULT_SAMPLES);
 
   const [movementType, setMovementType] = useState<MovementType>(initialMv);
   const [perspective, setPerspective] = useState<CameraPerspective>(
@@ -38,23 +41,27 @@ export const NewAnalysis: React.FC = () => {
   const [starting, setStarting] = useState(false);
   const [uploadedInfo, setUploadedInfo] = useState<UploadResponse | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
+  const [isBlobUrl, setIsBlobUrl] = useState(false);
+  const [activeSampleTitle, setActiveSampleTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([fetchMovementsAndGuidelines(), fetchSamples()])
       .then(([mvRes, smpRes]) => {
-        setMovements(mvRes.movements);
-        setGuidelines(mvRes.guidelines);
-        setSamples(smpRes);
+        if (mvRes.movements?.length) setMovements(mvRes.movements);
+        if (mvRes.guidelines) setGuidelines(mvRes.guidelines);
+        if (smpRes?.length) setSamples(smpRes);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load configuration.'));
+      .catch(() => {
+        // Keep instant built-in defaults
+      });
   }, []);
 
   useEffect(() => {
     return () => {
-      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+      if (localPreviewUrl && isBlobUrl) URL.revokeObjectURL(localPreviewUrl);
     };
-  }, [localPreviewUrl]);
+  }, [localPreviewUrl, isBlobUrl]);
 
   const handleMovementChange = (mv: MovementType) => {
     setMovementType(mv);
@@ -67,9 +74,11 @@ export const NewAnalysis: React.FC = () => {
   const handleFileSelected = async (file: File) => {
     setError(null);
     setUploading(true);
-    if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+    setActiveSampleTitle(file.name);
+    if (localPreviewUrl && isBlobUrl) URL.revokeObjectURL(localPreviewUrl);
     const objUrl = URL.createObjectURL(file);
     setLocalPreviewUrl(objUrl);
+    setIsBlobUrl(true);
 
     try {
       const res = await uploadVideoFile(file, movementType, perspective);
@@ -85,19 +94,32 @@ export const NewAnalysis: React.FC = () => {
   const handleSampleSelected = async (sample: SampleVideoItem) => {
     setError(null);
     setUploading(true);
-    if (localPreviewUrl) {
+    setUploadedInfo(null);
+    setActiveSampleTitle(sample.title);
+    if (localPreviewUrl && isBlobUrl) {
       URL.revokeObjectURL(localPreviewUrl);
-      setLocalPreviewUrl(null);
     }
+    // Immediate static CDN preview so video plays right away on any laptop or mobile browser
+    setLocalPreviewUrl(`/samples/${sample.filename}`);
+    setIsBlobUrl(false);
     setMovementType(sample.movement_type);
     setPerspective(sample.camera_perspective);
 
     try {
-      const res = await uploadSampleVideo(sample.id, sample.movement_type, sample.camera_perspective);
+      const res = await uploadSampleVideo(
+        sample.id,
+        sample.movement_type,
+        sample.camera_perspective,
+        sample.filename
+      );
       setUploadedInfo(res);
     } catch (e) {
       setUploadedInfo(null);
-      setError(e instanceof Error ? e.message : 'Failed to load sample video.');
+      setError(
+        e instanceof Error
+          ? e.message
+          : 'Failed to prepare sample video on backend. If the cloud server was asleep, please tap the sample once more.'
+      );
     } finally {
       setUploading(false);
     }
@@ -122,20 +144,19 @@ export const NewAnalysis: React.FC = () => {
   };
 
   const currentGuideline = guidelines?.[perspective];
-  const filteredSamples = samples.filter((s) => s.movement_type === movementType || samples.length <= 6);
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
       <Header
         title="New Biomechanical Analysis"
-        subtitle="Select movement module, verify camera perspective guidelines, and upload recording"
+        subtitle="Select movement module, choose a built-in sample or upload video, and run analysis"
       />
 
-      <main className="p-6 max-w-6xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <main className="p-4 md:p-6 max-w-6xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Config + Upload */}
         <div className="lg:col-span-7 space-y-6">
           {/* 1. Movement Module Selector */}
-          <section className="bg-[#161F2B] border border-white/10 rounded-xl p-5 space-y-3">
+          <section className="bg-[#161F2B] border border-white/10 rounded-xl p-4 md:p-5 space-y-3">
             <h2 className="text-sm font-semibold text-[#F4F7FA]">1. Select Movement Module</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {movements.map((mv) => {
@@ -171,15 +192,14 @@ export const NewAnalysis: React.FC = () => {
           </section>
 
           {/* 2. Camera Perspective & Confidence */}
-          <section className="bg-[#161F2B] border border-white/10 rounded-xl p-5 space-y-4">
+          <section className="bg-[#161F2B] border border-white/10 rounded-xl p-4 md:p-5 space-y-4">
             <h2 className="text-sm font-semibold text-[#F4F7FA]">2. Camera Perspective & Landmark Threshold</h2>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {(['side', 'front'] as CameraPerspective[]).map((p) => {
                 const active = perspective === p;
                 const recommended = movements.find((m) => m.id === movementType)?.recommended_perspective === p;
-                const unsupported =
-                  movementType === 'jumping_jack' && p === 'side';
+                const unsupported = movementType === 'jumping_jack' && p === 'side';
                 return (
                   <button
                     key={p}
@@ -245,15 +265,17 @@ export const NewAnalysis: React.FC = () => {
           </section>
 
           {/* 3. Upload & Preview */}
-          <section className="bg-[#161F2B] border border-white/10 rounded-xl p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-[#F4F7FA]">3. Upload & Preview Video</h2>
+          <section className="bg-[#161F2B] border border-white/10 rounded-xl p-4 md:p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-[#F4F7FA]">3. Choose Sample or Upload Video</h2>
             <UploadZone
+              selectedMovement={movementType}
               onFileSelected={handleFileSelected}
               onSampleSelected={handleSampleSelected}
-              samples={filteredSamples}
+              samples={samples}
               uploading={uploading}
               uploadedInfo={uploadedInfo}
               localPreviewUrl={localPreviewUrl}
+              activeSampleTitle={activeSampleTitle}
               error={error}
             />
 
@@ -262,7 +284,7 @@ export const NewAnalysis: React.FC = () => {
                 type="button"
                 disabled={!uploadedInfo || uploading || starting}
                 onClick={handleStartAnalysis}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#36D6A0] text-[#0B0F14] text-sm font-semibold hover:bg-[#2ec290] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-[#36D6A0] text-[#0B0F14] text-sm font-semibold hover:bg-[#2ec290] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <Play className="w-4 h-4" />
                 <span>{starting ? 'Starting Pipeline...' : 'Start Biomechanical Analysis'}</span>
@@ -274,7 +296,7 @@ export const NewAnalysis: React.FC = () => {
         {/* Right Column: Recording Guidelines */}
         <aside className="lg:col-span-5 space-y-4">
           {currentGuideline && (
-            <div className="bg-[#161F2B] border border-white/10 rounded-xl p-5 space-y-4 sticky top-24">
+            <div className="bg-[#161F2B] border border-white/10 rounded-xl p-4 md:p-5 space-y-4 lg:sticky lg:top-24">
               <div>
                 <div className="text-[11px] font-mono uppercase tracking-wider text-[#36D6A0]">
                   Recording Guidelines

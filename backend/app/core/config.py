@@ -15,7 +15,12 @@ PROCESSED_DIR = STORAGE_DIR / "processed"
 REPORTS_DIR = STORAGE_DIR / "reports"
 DB_PATH = STORAGE_DIR / "motioniq.db"
 
-SAMPLE_VIDEOS_DIR = PROJECT_ROOT / "sample_videos"
+SAMPLE_VIDEOS_DIR = BACKEND_DIR / "sample_videos"
+if not SAMPLE_VIDEOS_DIR.exists() or not any(SAMPLE_VIDEOS_DIR.glob("*.mp4")):
+    if (PROJECT_ROOT / "sample_videos").exists():
+        SAMPLE_VIDEOS_DIR = PROJECT_ROOT / "sample_videos"
+    elif (PROJECT_ROOT / "frontend" / "public" / "samples").exists():
+        SAMPLE_VIDEOS_DIR = PROJECT_ROOT / "frontend" / "public" / "samples"
 
 for _directory in (MODELS_DIR, UPLOADS_DIR, PROCESSED_DIR, REPORTS_DIR, SAMPLE_VIDEOS_DIR):
     _directory.mkdir(parents=True, exist_ok=True)
@@ -116,10 +121,10 @@ SAMPLE_VIDEO_CATALOG = [
     },
     {
         "id": "basketball_shot_side_1",
-        "filename": "bball_jumpshot.MOV",
-        "title": "Basketball Jump Shot — Side View (.MOV)",
+        "filename": "bball_jumpshot.mp4",
+        "title": "Basketball Jump Shot — Side View",
         "movement_type": "basketball_shooting",
         "camera_perspective": "side",
-        "description": "Experimental basketball jump-shot recording (.MOV) for shooting-arm elbow/shoulder kinematics and release posture.",
+        "description": "Experimental basketball jump-shot recording for shooting-arm elbow/shoulder kinematics and release posture.",
     },
 ]

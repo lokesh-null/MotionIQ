@@ -27,25 +27,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_default_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
-]
-_env_origins = [
-    o.strip().rstrip("/")
-    for o in os.getenv("CORS_ORIGINS", "").split(",")
-    if o.strip()
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(dict.fromkeys(_default_origins + _env_origins)),
-    allow_origin_regex=r"https://.*\.vercel\.app",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length", "Content-Disposition"],
 )
 
 app.include_router(analysis_router)

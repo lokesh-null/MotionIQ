@@ -12,12 +12,18 @@ import {
   Video,
 } from 'lucide-react';
 import { Header } from '../components/Header';
-import { deleteAnalysis, fetchAnalyses, fetchMovementsAndGuidelines, getReportPdfUrl } from '../services/api';
+import {
+  DEFAULT_MOVEMENTS,
+  deleteAnalysis,
+  fetchAnalyses,
+  fetchMovementsAndGuidelines,
+  getReportPdfUrl,
+} from '../services/api';
 import type { AnalysisListItem, MovementInfo } from '../types/biomechanics';
 
 export const Dashboard: React.FC = () => {
   const [analyses, setAnalyses] = useState<AnalysisListItem[]>([]);
-  const [movements, setMovements] = useState<MovementInfo[]>([]);
+  const [movements, setMovements] = useState<MovementInfo[]>(DEFAULT_MOVEMENTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,10 +32,10 @@ export const Dashboard: React.FC = () => {
       setLoading(true);
       const [listData, mvData] = await Promise.all([fetchAnalyses(), fetchMovementsAndGuidelines()]);
       setAnalyses(listData);
-      setMovements(mvData.movements);
+      if (mvData.movements?.length) setMovements(mvData.movements);
       setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to reach MotionIQ backend API.');
+    } catch {
+      // Keep default movements visible even if backend is waking up
     } finally {
       setLoading(false);
     }
