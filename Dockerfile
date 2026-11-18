@@ -26,6 +26,8 @@ COPY sample_videos /app/sample_videos
 
 WORKDIR /app/backend
 
+RUN python -c "import cv2, mediapipe as mp; from mediapipe.tasks import python as mp_tasks; from mediapipe.tasks.python import vision; opts = vision.PoseLandmarkerOptions(base_options=mp_tasks.BaseOptions(model_asset_buffer=open('models/pose_landmarker_lite.task', 'rb').read())); lm = vision.PoseLandmarker.create_from_options(opts); lm.close(); print('Docker MediaPipe PoseLandmarker OK')"
+
 EXPOSE 8000
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
