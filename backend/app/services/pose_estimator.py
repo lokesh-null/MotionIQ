@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import gc
 import math
 import os
 import shutil
@@ -76,6 +77,16 @@ def _ensure_linux_gl_libraries() -> None:
                 ctypes.CDLL(str(bundled), mode=ctypes.RTLD_GLOBAL)
 
     _LINUX_GL_PRELOADED = True
+
+
+def release_native_memory() -> None:
+    """Force Python GC and glibc malloc_trim(0) on Linux to return freed C++ arenas to the OS."""
+    gc.collect()
+    if sys.platform.startswith("linux"):
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
 
 
 _ensure_linux_gl_libraries()
@@ -260,11 +271,15 @@ def extract_pose_landmarks(
             fps = 30.0
         reported_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
-        proc_w, proc_h = compute_even_scaled_dimensions(orig_w, orig_h, max_dim=1280)
+        is_cloud = bool(os.getenv("RENDER"))
+        target_max_dim = 640 if is_cloud else 960
+        proc_w, proc_h = compute_even_scaled_dimensions(orig_w, orig_h, max_dim=target_max_dim)
 
-        # Sample stride for >35 FPS high-speed videos while keeping actual timestamps
+        # Sample stride for >35 FPS videos, or >260-frame videos on memory/CPU-constrained cloud containers
         if fps > MAX_ANALYSIS_FPS:
             sample_stride = max(1, int(round(fps / TARGET_SAMPLED_FPS)))
+        elif is_cloud and reported_frame_count > 260 and fps >= 24.0:
+            sample_stride = max(1, int(round(fps / 15.0)))
         else:
             sample_stride = 1
 
@@ -365,6 +380,9 @@ def extract_pose_landmarks(
                     )
 
                 raw_frame_idx += 1
+
+        del model_bytes
+        release_native_memory()
 
         if progress_callback:
             progress_callback(

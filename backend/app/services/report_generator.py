@@ -58,7 +58,7 @@ def _render_angle_chart_png(results: Dict[str, Any]) -> Optional[io.BytesIO]:
     if not plot_keys:
         return None
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7.2, 4.6), dpi=160, sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7.2, 4.4), dpi=120, sharex=True)
     fig.patch.set_facecolor("#FFFFFF")
     palette = ["#0D9488", "#2563EB", "#D97706", "#DC2626"]
 

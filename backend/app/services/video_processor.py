@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import math
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 import cv2
 import imageio_ffmpeg
+
+_PIPELINE_LOCK = threading.Lock()
 
 from app.core.config import PROCESSED_DIR, REPORTS_DIR, SUPPORTED_MOVEMENTS
 from app.core.database import (
@@ -24,6 +27,7 @@ from app.services.pose_estimator import (
     POSE_CONNECTIONS,
     compute_even_scaled_dimensions,
     extract_pose_landmarks,
+    release_native_memory,
 )
 from app.services.report_generator import generate_pdf_report
 from app.utils.validation import evaluate_recording_quality, validate_video_file
@@ -223,19 +227,24 @@ def render_annotated_video(
         cap.release()
         writer.release()
 
-    # Transcode to browser-playable H.264 MP4 using imageio-ffmpeg
+    # Transcode to browser-playable H.264 MP4 using imageio-ffmpeg (single-thread ultrafast to avoid cloud OOM)
+    release_native_memory()
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     cmd = [
         ffmpeg_exe,
         "-y",
+        "-threads",
+        "1",
         "-i",
         str(temp_raw_mp4),
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        "ultrafast",
         "-crf",
-        "23",
+        "24",
+        "-x264-params",
+        "rc-lookahead=0:sync-lookahead=0:ref=1:bframes=0:threads=1",
         "-pix_fmt",
         "yuv420p",
         "-movflags",
@@ -246,6 +255,7 @@ def render_annotated_video(
     if proc.returncode != 0 or not out_path.exists():
         raise RuntimeError(f"FFmpeg H.264 transcoding failed: {proc.stderr[-400:]}")
     temp_raw_mp4.unlink(missing_ok=True)
+    release_native_memory()
     return out_path
 
 
@@ -258,8 +268,26 @@ def run_full_analysis_pipeline(
 ) -> Dict[str, Any]:
     """
     Execute the complete MotionIQ analysis workflow synchronously (invoked inside a worker thread).
-    Updates real progress in SQLite at every stage.
+    Serializes heavy CV execution via _PIPELINE_LOCK so concurrent cloud requests never exceed 512MB RAM.
     """
+    with _PIPELINE_LOCK:
+        release_native_memory()
+        return _run_full_analysis_pipeline_locked(
+            analysis_id=analysis_id,
+            movement_type=movement_type,
+            camera_perspective=camera_perspective,
+            confidence_threshold=confidence_threshold,
+            criteria_overrides=criteria_overrides,
+        )
+
+
+def _run_full_analysis_pipeline_locked(
+    analysis_id: str,
+    movement_type: str,
+    camera_perspective: str,
+    confidence_threshold: float,
+    criteria_overrides: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
     t_start = time.perf_counter()
     rec = get_analysis_record(analysis_id)
     if not rec:
@@ -421,6 +449,7 @@ def run_full_analysis_pipeline(
 
         report_pdf_path = REPORTS_DIR / f"{analysis_id}_report.pdf"
         generate_pdf_report(results, report_pdf_path)
+        release_native_memory()
 
         complete_analysis_record(
             analysis_id=analysis_id,

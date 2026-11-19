@@ -16,28 +16,39 @@ export const Processing: React.FC = () => {
     if (!id) return;
     let cancelled = false;
     let timerId: number | undefined;
+    let consecutiveFailures = 0;
 
     const poll = async () => {
       try {
         const res = await fetchAnalysisStatus(id);
         if (cancelled) return;
+        consecutiveFailures = 0;
         setStatusData(res);
         setError(null);
 
         if (res.status === 'completed') {
           timerId = window.setTimeout(() => {
             if (!cancelled) navigate(`/results/${id}`, { replace: true });
-          }, 500);
+          }, 400);
           return;
         }
         if (res.status === 'failed') {
           return;
         }
-        timerId = window.setTimeout(poll, 450);
+        timerId = window.setTimeout(poll, 600);
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Unable to fetch processing status.');
-          timerId = window.setTimeout(poll, 1200);
+          consecutiveFailures += 1;
+          const msg = e instanceof Error ? e.message : 'Unable to fetch processing status.';
+          // Only surface transient network errors after multiple consecutive poll failures
+          if (consecutiveFailures >= 5) {
+            setError(
+              msg.includes('Failed to fetch')
+                ? 'Connection to cloud worker interrupted (server may be restarting). Retrying automatically...'
+                : msg
+            );
+          }
+          timerId = window.setTimeout(poll, 1500);
         }
       }
     };
@@ -58,8 +69,15 @@ export const Processing: React.FC = () => {
 
       <main className="p-6 max-w-4xl w-full mx-auto space-y-6">
         {error && (
-          <div className="bg-[#F16D73]/10 border border-[#F16D73]/40 rounded-lg p-4 text-xs text-[#F16D73]">
-            {error}
+          <div className="bg-[#F4B860]/10 border border-[#F4B860]/40 rounded-lg p-4 text-xs text-[#F4B860] flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <Link
+              to="/new"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#36D6A0] text-[#0B0F14] font-semibold"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Run New Analysis</span>
+            </Link>
           </div>
         )}
 
